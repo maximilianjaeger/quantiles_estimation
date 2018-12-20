@@ -19,7 +19,7 @@ kNN.quantiles <- function(data.X, data.Y, x, alpha = c(0.05, 0.25, 0.5, 0.75, 0.
 
 # This is a method for finding the optimal amount of nearest neighbors for estimating conditional quantiles.
 # Therefore the given data set is split into a training and a test set for cross validation of the estimations.
-kNN.quantiles.find.k <- function(data.X, data.Y, alpha = c(0.05, 0.25, 0.5, 0.75, 0.95)) {
+kNN.quantiles.crossValidation <- function(data.X, data.Y, alpha = c(0.05, 0.25, 0.5, 0.75, 0.95)) {
        set.seed(00)
        
        # Data is split into different training and test sets.
@@ -27,7 +27,7 @@ kNN.quantiles.find.k <- function(data.X, data.Y, alpha = c(0.05, 0.25, 0.5, 0.75
        folds        <- createFolds(data.Y, k = folds.amount)
        
        # Set containing different amount of neigbors that is to be optimized.
-       neighbors <- c(2, 3, 4)
+       neighbors <- c(1, 2, 5, 10, 20, 50)
        
        # array containing the results of the check function (cost function of quantile regression)
        quantiles.error <- array(NA, dim = c(length(alpha), length(neighbors), length(data.Y), folds.amount))
@@ -62,7 +62,7 @@ kNN.quantiles.find.k <- function(data.X, data.Y, alpha = c(0.05, 0.25, 0.5, 0.75
        k.optimum <- apply(k.optimum, c(2), mean, na.rm = TRUE)
        
        # return index of the minimum error / optimal amount of neighbors
-       return(which.min(k.optimum))
+       return(neighbors[which.min(k.optimum)])
 }
 
 
@@ -79,11 +79,13 @@ check.function <- function(value.Y, quantile, alpha) {
 kNN.quantiles.test <- function() {
        # set.seed(1)
        
-       data.X <- matrix(runif(1000, -2, 2), nrow = 4)
-       data.Y <- apply(data.X ^ 2, 2, sum) + rnorm(250)
-       x      <- matrix(c(1,1,1,1), nrow = 1)
+       n      <- 500
+       d      <- 2
+       data.X <- matrix(runif(n * d, -2, 2), nrow = d)
+       data.Y <- apply(data.X, 2, sum) 
+       x      <- array(0, dim = c(1, d))
        
-       amount.neighbors.optimum <- kNN.quantiles.find.k(data.X = data.X, data.Y = data.Y)
+       amount.neighbors.optimum <- kNN.quantiles.crossValidation(data.X = data.X, data.Y = data.Y)
        results                  <- kNN.quantiles(data.X, data.Y, x, amount.neighbors = amount.neighbors.optimum)
        
        return(list(k = amount.neighbors.optimum, q = results))
