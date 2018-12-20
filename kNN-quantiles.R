@@ -20,23 +20,23 @@ kNN.quantiles <- function(data.X, data.Y, x, alpha = c(0.05, 0.25, 0.5, 0.75, 0.
 # This is a method for finding the optimal amount of nearest neighbors for estimating conditional quantiles.
 # Therefore the given data set is split into a training and a test set for cross validation of the estimations.
 kNN.quantiles.crossValidation <- function(data.X, data.Y, alpha = c(0.05, 0.25, 0.5, 0.75, 0.95)) {
-       set.seed(00)
+       # set.seed(00)
        
        # Data is split into different training and test sets.
        folds.amount <- 2
        folds        <- createFolds(data.Y, k = folds.amount)
        
        # Set containing different amount of neigbors that is to be optimized.
-       neighbors <- c(1, 2, 5, 10, 20, 50)
+       neighbors <- c(1, 2,3,4, 5, 10, 20, 50)
        
        # array containing the results of the check function (cost function of quantile regression)
        quantiles.error <- array(NA, dim = c(length(alpha), length(neighbors), length(data.Y), folds.amount))
        
        for (f in 1:folds.amount) {
-              data.X.train <- data.X[,  folds[[f]]]
-              data.X.test  <- data.X[, -folds[[f]]]
-              data.Y.train <- data.Y[ folds[[f]]]
-              data.Y.test  <- data.Y[-folds[[f]]]
+              data.X.train <- data.X[, -folds[[f]]]
+              data.X.test  <- data.X[,  folds[[f]]]
+              data.Y.train <- data.Y[-folds[[f]]]
+              data.Y.test  <- data.Y[ folds[[f]]]
               
               # array containing the estimated quantiles for different alpha, neighbors and test points
               quantiles <- array(NA, dim = c(length(alpha), length(neighbors), length(data.Y.test)))
@@ -69,9 +69,10 @@ kNN.quantiles.crossValidation <- function(data.X, data.Y, alpha = c(0.05, 0.25, 
 # Cost function of quantile regression (check function)
 check.function <- function(value.Y, quantile, alpha) {
        if (value.Y < quantile) {
-              return((alpha - 1) * abs(value.Y - quantile))
-       } 
-       return(alpha * abs(value.Y - quantile))
+              return((alpha - 1) * (value.Y - quantile))
+       } else {
+              return(alpha * abs(value.Y - quantile))
+       }
 }
 
 
@@ -82,7 +83,7 @@ kNN.quantiles.test <- function() {
        n      <- 500
        d      <- 2
        data.X <- matrix(runif(n * d, -2, 2), nrow = d)
-       data.Y <- apply(data.X, 2, sum) 
+       data.Y <- apply(data.X, 2, sum) + 2*rnorm(n)
        x      <- array(0, dim = c(1, d))
        
        amount.neighbors.optimum <- kNN.quantiles.crossValidation(data.X = data.X, data.Y = data.Y)
