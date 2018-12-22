@@ -71,7 +71,7 @@ check.function <- function(value.Y, quantile, alpha) {
        if (value.Y < quantile) {
               return((alpha - 1) * (value.Y - quantile))
        } else {
-              return(alpha * abs(value.Y - quantile))
+              return(alpha * (value.Y - quantile))
        }
 }
 
@@ -83,7 +83,7 @@ kNN.quantiles.test <- function() {
        n      <- 500
        d      <- 2
        data.X <- matrix(runif(n * d, -2, 2), nrow = d)
-       data.Y <- apply(data.X, 2, sum) + 2*rnorm(n)
+       data.Y <- apply(data.X, 2, sum) + rnorm(n)
        x      <- array(0, dim = c(1, d))
        
        amount.neighbors.optimum <- kNN.quantiles.crossValidation(data.X = data.X, data.Y = data.Y)
