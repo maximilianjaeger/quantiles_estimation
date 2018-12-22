@@ -1,5 +1,6 @@
 library(geozoo) # create multidimensional objects (grid)
 library(scales) # rescale numerical values
+library(ggplot2)
 
 
 # This method is used for comparing the estimation of the conditional quantiles via kNN 
@@ -19,14 +20,14 @@ quantiles.test <- function(variables) {
        
        # calculation of the quantiles for every point in x using kNN
        amount.neighbors.optimum <- kNN.quantiles.crossValidation(data.X, data.Y, alpha)
-       quantiles.knn            <- array(NA, dim = c(nrow(x), length(alpha)))
+       quantiles.knn            <- array(NA, dim = c(length(alpha), nrow(x)))
        
        for (i in 1:nrow(x)) {
-              quantiles.knn[i, ] <- kNN.quantiles(data.X, data.Y, t(x[i, ]), alpha, amount.neighbors.optimum)
+              quantiles.knn[, i] <- kNN.quantiles(data.X, data.Y, t(x[i, ]), alpha, amount.neighbors.optimum)
        }
        
        # calculation of the quantiles for every point in x using quantization
-       quantiles.quantif <- t(quantif.quantiles.max(
+       quantiles.quantif <- quantif.quantiles.max(
               X      = data.X,
               Y      = data.Y,
               x      = t(x),
@@ -35,12 +36,13 @@ quantiles.test <- function(variables) {
               tildeB = tildeB,
               testN  = testN,
               ncores = 3
-       )$hatq_opt)
+       )$hatq_opt
+       
        
        # evalution of the models
-       evaluation.mean    <- apply(quantiles.knn - quantiles.quantif, 2, mean)
-       evaluation.sd      <- apply(quantiles.knn - quantiles.quantif, 2, sd)
-       evaluation.summary <- apply((quantiles.knn - quantiles.quantif) ^ 2, 2, summary)
+       evaluation.mean    <- apply(quantiles.knn - quantiles.quantif, 1, mean)
+       evaluation.sd      <- apply(quantiles.knn - quantiles.quantif, 1, sd)
+       evaluation.summary <- apply((quantiles.knn - quantiles.quantif) ^ 2, 1, summary)
        evaluation.table   <- rbind(evaluation.mean, evaluation.sd, evaluation.summary)
        evaluation.table   <- cbind(evaluation.table, apply(evaluation.table, 1, mean))
        
