@@ -20,8 +20,7 @@ kNN.quantiles <- function(data.X, data.Y, x, alpha = c(0.05, 0.25, 0.5, 0.75, 0.
 # This is a method for finding the optimal amount of nearest neighbors for estimating conditional quantiles.
 # Therefore the given data set is split into a training and a test set for cross validation of the estimations.
 kNN.quantiles.crossValidation <- function(data.X, data.Y, alpha = c(0.05, 0.25, 0.5, 0.75, 0.95)) {
-       # set.seed(00)
-       
+
        # Data is split into different training and test sets.
        folds.amount <- 2
        folds        <- createFolds(data.Y, k = folds.amount)
@@ -78,8 +77,6 @@ check.function <- function(value.Y, quantile, alpha) {
 
 # This is a method to declare data sets for testing of the functions above.
 kNN.quantiles.test <- function() {
-       # set.seed(1)
-       
        n      <- 500
        d      <- 2
        data.X <- matrix(runif(n * d, -2, 2), nrow = d)
