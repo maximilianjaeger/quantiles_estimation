@@ -1,6 +1,10 @@
 require(xgboost)
 require(purrr) # partial function
 
+### TODO ###
+# Create a version that can deal with multidimensional data.
+# Change xgboost.quantiles so that it takes train and test data as input.
+# Change xgboost.quantiles so that it returns a matrix containing all alpha-quantile estimations.
 
 # This is a method to test the following method for estimating conditional quantiles using XGBoost.
 # A data set is simulated and passed on to the xgboost.quantiles() function.
@@ -86,6 +90,7 @@ xgboost.quantiles <- function(x, y) {
               # perform the prediction
               predictions <- predict(model.boosted, dtest)
               
+              # draw the predictions
               lines(X, predictions, col = params.obj$colour[i])
        }
 }
