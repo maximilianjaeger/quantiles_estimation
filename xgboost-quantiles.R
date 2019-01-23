@@ -1,98 +1,144 @@
 require(xgboost)
 require(purrr) # partial function
 
-### TODO ###
-# Create a version that can deal with multidimensional data.
-# Change xgboost.quantiles so that it takes train and test data as input.
-# Change xgboost.quantiles so that it returns a matrix containing all alpha-quantile estimations.
+library(geozoo) # create multidimensional objects (grid)
+library(scales) # rescale numerical values
+
 
 # This is a method to test the following method for estimating conditional quantiles using XGBoost.
 # A data set is simulated and passed on to the xgboost.quantiles() function.
 xgboost.quantiles.test <- function() {
-       x     <- sort(runif(10000, 0, 10))
-       y     <- x * sin(x)
-       dy    <- 1.5 + 1.0 * runif(length(y), 0, 1)
-       noise <- rnorm(10000, 0, dy)
-       y     <- y + noise
        
-       xgboost.quantiles(x, y)
+       # simulation of test data
+       n         <- 1000
+       dimension <- 1
+       interval  <- c(-5, 5)
+       data.X    <- matrix(runif(n * dimension, interval[1], interval[2]), nrow = dimension)
+       test.x    <- create.grid(floor(sqrt(n)), dimension, interval[1], interval[2])
+       data.Y    <- apply(data.X ^ 2, 2, sum) + rnorm(n)
+       
+       # simulation of f(x) = x * sin(x)
+       # data.Y <- data.X * sin(data.X)
+       # dy     <- 1.5 + 1.0 * runif(length(data.Y), 0, 1)
+       # noise  <- rnorm(500, 0, dy)
+       # data.Y <- data.Y + noise
+      
+       if (dimension == 1) {
+              draw <- TRUE
+       } else {
+              draw <- FALSE
+       }
+       
+       xgboost.quantiles(
+              data.X = t(data.X),
+              data.Y = data.Y,
+              test.x = test.x,
+              draw   = draw
+       )
 }
 
-
-# This is a method for estimating conditional quantiles using XGBoost given data points (x, y).
-# Note that x is required to be onedimensional.
-xgboost.quantiles <- function(x, y) {
+# This is a method to estimate conditional quantiles using XGBoost. 
+# It requires training data and test points for which the alpha-quantiles will be returned.
+xgboost.quantiles <- function(data.X, data.Y, test.x, alpha = c(0.05, 0.25, 0.5, 0.75, 0.95), draw = FALSE) {
        
-       # TODO: Train and test data have to be splitted/different.
-       dtrain <- xgb.DMatrix(as.matrix(X), label = as.matrix(y))
-       dtest  <- xgb.DMatrix(as.matrix(X), label = as.matrix(y))
-       
-       # observation of train and test errors
-       watchlist <- list(train = dtrain, eval = dtest)
-       
-       params.xgb <- list(
-              # Maximum depth of a tree. 
-              # Increasing this value will make the model more complex and more likely to overfit.
-              # range: [0,inf]
-              max_depth = 3,
-              
-              # L1 regularization term on weights. 
-              # Increasing this value will make model more conservative.
-              # default = 1
-              alpha = 5.0,
-              
-              # Minimum loss reduction required to make a further partition on a leaf node. 
-              # The larger gamma is, the more conservative the algorithm will be.
-              # range: [0,inf]
-              gamma = 0.5
-       )
+       dtrain <- xgb.DMatrix(data = as.matrix(data.X), label = as.matrix(data.Y))
        
        params.obj <- list(
-              # determine the alpha-quantiles
-              alpha = c(0.05, 0.5, 0.95),
-              
               # controls the smoothing of the step function
               # the higher the delta, the steeper the connection is between the two steps.
               delta = 1,
               
               # controls the size of the interval where the cost-function is similar to
               # the usual quantile regression cost function
-              threshold = c(6, 5.5, 5),
+              threshold = 5.5,
               
               # controls how drastically you want to remix predictions within the leafs. 
               # The higher rho, the more the gradient is randomized.
-              rho  = c(3.2, 3.7, 4.2),
-              
-              # colours for plotting the predictions
-              colour = c("orange", "dark green", "dark blue")
+              rho = 3.7
        )
        
-       plot (X, y         , col = "light gray")
-       lines(X, X * sin(X), col = "dark red"  )
+       predictions <- array(0, dim = c(length(alpha), nrow(test.x)))
        
-       for (i in 1:length(params.obj$alpha)) {
+       for (i in 1:length(alpha)) {
               
               # training of the model
-              model.boosted <- xgb.train(
-                     params    = params.xgb,
-                     data      = dtrain,
-                     nrounds   = 50, 
-                     watchlist = watchlist,
-                     obj       = partial(
-                            loss.quantile, 
-                            alpha         = params.obj$alpha    [i], 
-                            threshold     = params.obj$threshold[i], 
-                            rho           = params.obj$rho      [i]
+              model <- xgb.train(
+                     
+                     # Maximum depth of a tree. 
+                     # Increasing this value will make the model more complex and more likely to overfit.
+                     # range: [0,inf]
+                     max_depth = 8,
+                     
+                     # L1 regularization term on weights. 
+                     # Increasing this value will make model more conservative.
+                     # default = 1
+                     alpha = 1,
+                     
+                     # Minimum loss reduction required to make a further partition on a leaf node. 
+                     # The larger gamma is, the more conservative the algorithm will be.
+                     # range: [0,inf]
+                     gamma = 0.5,
+                     
+                     # training data
+                     data = dtrain,
+                     
+                     # amount of iterations
+                     nrounds = 100, 
+                     
+                     # objective function
+                     obj = partial(
+                            
+                            # Choose between the smoothed or unsmoothed variant of the quantile loss function.
+                            # Note that the smoothed variant requires smoothing parameters.
+                            loss.quantile.unsmoothed, 
+                            
+                            # Note that it may be useful to change the parameters corresponding to alpha.
+                            alpha     = alpha[i]
+                            # delta     = params.obj$delta,
+                            # threshold = params.obj$threshold,
+                            # rho       = params.obj$rho
                      ),
-                     feval = partial(loss.quantile.score, alpha = params.obj$alpha[i])
+                     
+                     # evaluation function
+                     feval = partial(loss.quantile.score, alpha = alpha)
               )
               
-              # perform the prediction
-              predictions <- predict(model.boosted, dtest)
-              
-              # draw the predictions
-              lines(X, predictions, col = params.obj$colour[i])
+              # predict using the trained model
+              predictions[i, ] <- predict(model, as.matrix(test.x))
        }
+       
+       # Note that drawing only works with onedimensional x.
+       if (draw) {
+              colours <- c(
+                     "orange", 
+                     "dark green", 
+                     "dark blue", 
+                     "dark red", 
+                     "violet"
+              )
+              
+              plot(data.X, data.Y, col = "light gray", bty = "n")
+              
+              for (i in 1:length(alpha)) {
+                     df <- rbind(t(test.x), predictions[i, ])
+                     df <- df[, order(df[1, ])]
+                     
+                     lines(df[1, ], df[2, ], col = colours[i])   
+              }
+              
+              legend(
+                     "topleft",
+                     inset     = 0.02,
+                     cex       = 0.75,
+                     ncol      = length(alpha),
+                     legend    = alpha,
+                     lty       = array(1, dim = length(alpha)),
+                     col       = colours,
+                     box.lty   = 0
+              )
+       }
+       
+       return(predictions)
 }
 
 
@@ -105,13 +151,13 @@ loss.quantile.score <- function(preds, dtrain, alpha) {
        
        for (i in 1:length(preds)) {
               if (labels[i] < preds[i]) {
-                     score[i] <- (alpha - 1) * abs(labels[i] - preds[i])
+                     score[i] <- (alpha - 1) * (labels[i] - preds[i])
               } else {
-                     score[i] <- alpha * abs(labels[i] - preds[i])
+                     score[i] <- alpha * (labels[i] - preds[i])
               }
        }
       
-       score <- 1.0 / sum(score)
+       score <- sum(score)
        
        return(list(metric = "error", value = score))
 }
@@ -120,7 +166,7 @@ loss.quantile.score <- function(preds, dtrain, alpha) {
 # This method requires the true and predicted values of a response variable,
 # the wanted quantiles alpha and certain smoothing parameters found by grid search 
 # to return smoothed variants of both gradient and hessian of the quantile loss function.
-loss.quantile <- function(
+loss.quantile.smoothed <- function(
               preds, 
               dtrain,
               alpha     = 0.5,
@@ -135,8 +181,23 @@ loss.quantile <- function(
        hessian  <- array(0, dim = length(x))
        
        for (i in 1:length(x)) {
-              gradient[i] <- loss.quantiles.gradient(x[i], alpha, delta, threshold, rho)
-              hessian [i] <- loss.quantiles.hessian (x[i], alpha, delta, threshold)
+              # force a split by adding randomization
+              rho <- (2 * sample(0:1, 1) - 1.0) * rho
+              
+              # smooth the gradient and the hessian of the quantile loss function
+              if (abs(x[i]) > threshold) {
+                     gradient[i] <- rho
+                     hessian [i] <- 1
+              } else if (x[i] < (alpha - 1) * delta) {
+                     gradient[i] <- 1 - alpha
+                     hessian [i] <- 0
+              } else if (x[i] < alpha * delta) {
+                     gradient[i] <- -x[i] / delta
+                     hessian [i] <- 1.0 / delta
+              } else {
+                     gradient[i] <- -alpha
+                     hessian [i] <- 0
+              }
        }
        
        # plot smoothed variants of both gradient and hessian
@@ -147,37 +208,43 @@ loss.quantile <- function(
 }
 
 
-# This method provides a smoothed variant of the gradient of the quantile loss function.
-loss.quantile.gradient <- function(x, alpha, delta, threshold, rho) {
+# This method requires the true and predicted values of a response variable,
+# the wanted quantiles alpha and certain smoothing parameters found by grid search 
+# to return both gradient and hessian of the quantile loss function.
+loss.quantile.unsmoothed <- function(preds, dtrain, alpha = 0.5) {
        
-       # smooth the gradient of the quantile loss function
-       if ((x >= (alpha - 1) * delta) & (x < alpha * delta)) {
-              gradient <- (-1) * x / delta
-       } else if (x < (alpha - 1) * delta) {
-              gradient <- 1 - alpha
-       } else if (x >= alpha * delta) {
-              gradient <- (-1) * alpha
-       }
+       labels   <- getinfo(dtrain, "label")
+       x        <- labels - preds
+       n        <- 5
+       gradient <- array(0, dim = length(x))
+       hessian  <- array(0, dim = length(x))
        
-       # force a split by adding randomization
-       rho <- (2 * sample(0:1, 1) - 1.0) * rho
+       for (i in 1:length(x)) {
+              if (x[i] < (-1.0) / n) {
+                     gradient[i] <- 1 - alpha 
+                     hessian [i] <- 0
+              } else if (x[i] <= 0) {
+                     gradient[i] <- (-1) * n / 2 * x[i] 
+                     hessian [i] <- n ^ 2 * x[i] + n
+              } else if (x[i] <= 1.0 / n) {
+                     gradient[i] <- (-1) * n / 2 * x[i] 
+                     hessian [i] <- (-1) * n ^ 2 * x[i] + n
+              } else {
+                     gradient[i] <- (-1) * alpha
+                     hessian [i] <- 0
+              }
+       } 
        
-       if (abs(x) >= threshold) {
-              gradient <- rho
-       }
-       return(gradient)
+       return(list(grad = gradient, hess = hessian))
 }
 
 
-# This method provides a smoothed variant of the hessian of the quantile loss function.
-loss.quantile.hessian <- function(x, alpha, delta, threshold) {
+# This method creates a p-dimensional grid with n equispaced points each dimension between 0 and 1.
+# The method then rescales each value to a specified range.
+create.grid <- function(points.amount, dimension, range.min, range.max) {
+       grid <- cube.solid.grid(p = dimension, n = points.amount)$points
+       grid <- rescale(grid, to = c(range.min, range.max))
        
-       # smooth the hessian of the quantile loss function
-       hessian <- ((x >= (alpha - 1) * delta) & (x < alpha * delta)) / delta
-       
-       if (abs(x) >= threshold) {
-              hessian <- 1
-       }
-       return(hessian)
+       return(grid)
 }
 
