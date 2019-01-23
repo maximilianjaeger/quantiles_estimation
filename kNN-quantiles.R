@@ -1,6 +1,8 @@
-library("RANN")
-library("caTools")
-library("caret")
+library(RANN)
+library(caTools)
+library(caret)
+library(geozoo) # create multidimensional objects (grid)
+library(scales) # rescale numerical values
 
 
 # This is a method to estimate the conditional quantiles of a given point
@@ -26,14 +28,21 @@ kNN.quantiles.crossValidation <- function(data.X, data.Y, alpha = c(0.05, 0.25, 
        folds        <- createFolds(data.Y, k = folds.amount)
        
        # Set containing different amount of neigbors that is to be optimized.
-       neighbors <- c(1, 2,3,4, 5, 10, 20, 50)
+       neighbors <- c(1, 2, 3, 4, 5, 10, 20)
        
        # array containing the results of the check function (cost function of quantile regression)
        quantiles.error <- array(NA, dim = c(length(alpha), length(neighbors), length(data.Y), folds.amount))
        
        for (f in 1:folds.amount) {
-              data.X.train <- data.X[, -folds[[f]]]
-              data.X.test  <- data.X[,  folds[[f]]]
+              
+              # check for dimensionality issues with the data and split data into train and test sets
+              if (length(data.X) == length(data.Y)) {
+                     data.X.train <- data.X[-folds[[f]]]
+                     data.X.test  <- data.X[ folds[[f]]]
+              } else {
+                     data.X.train <- data.X[, -folds[[f]]]
+                     data.X.test  <- data.X[,  folds[[f]]]
+              }
               data.Y.train <- data.Y[-folds[[f]]]
               data.Y.test  <- data.Y[ folds[[f]]]
               
@@ -42,10 +51,32 @@ kNN.quantiles.crossValidation <- function(data.X, data.Y, alpha = c(0.05, 0.25, 
               
               for (i in 1:length(neighbors)) {
                      for (j in 1:length(data.Y.test)) {
-                            quantiles[, i, j] <- kNN.quantiles(data.X.train, data.Y.train, t(data.X.test[, j]), alpha, neighbors[i])[[2]]
                             
+                            # check for dimensionality issues with the data
+                            if (length(data.X) == length(data.Y)) {
+                                   tmp1 <- t(data.X.train)
+                                   tmp2 <- t(data.X.test[j])
+                            } else {
+                                   tmp1 <- data.X.train
+                                   tmp2 <- t(data.X.test[, j])
+                            }
+                            
+                            # estimate the quantiles
+                            quantiles[, i, j] <- kNN.quantiles(
+                                   data.X           = tmp1, 
+                                   data.Y           = data.Y.train, 
+                                   x                = tmp2, 
+                                   alpha            = alpha, 
+                                   amount.neighbors = neighbors[i]
+                            )[[2]]
+                            
+                            # calculate the errors
                             for (a in 1:length(alpha)) {
-                                   quantiles.error[a, i, j, f] <- check.function(data.Y.test[j], quantiles[a, i, j], alpha[a])
+                                   quantiles.error[a, i, j, f] <- check.function(
+                                          value.Y  = data.Y.test[j], 
+                                          quantile = quantiles[a, i, j], 
+                                          alpha    = alpha[a]
+                                   )
                             }
                      }
               }
@@ -77,15 +108,68 @@ check.function <- function(value.Y, quantile, alpha) {
 
 # This is a method to declare data sets for testing of the functions above.
 kNN.quantiles.test <- function() {
-       n      <- 500
-       d      <- 2
-       data.X <- matrix(runif(n * d, -2, 2), nrow = d)
-       data.Y <- apply(data.X, 2, sum) + rnorm(n)
-       x      <- array(0, dim = c(1, d))
        
-       amount.neighbors.optimum <- kNN.quantiles.crossValidation(data.X = data.X, data.Y = data.Y)
-       results                  <- kNN.quantiles(data.X, data.Y, x, amount.neighbors = amount.neighbors.optimum)
+       # simulation of data
+       n         <- 500
+       dimension <- 1
+       interval  <- c(-5, 5)
+       data.X    <- matrix(runif(n * dimension, interval[1], interval[2]), nrow = dimension)
+       data.Y    <- apply(data.X ^ 2, 2, sum) + rnorm(n)
+       test.x    <- create.grid(n / 10, dimension, interval[1], interval[2])
+       alpha     <- c(0.05, 0.25, 0.5, 0.75, 0.95)
        
-       return(list(k = amount.neighbors.optimum, q = results))
+       # calculation of the quantiles for every point in x using kNN
+       amount.neighbors.optimum <- kNN.quantiles.crossValidation(data.X, data.Y, alpha)
+       quantiles.knn            <- array(NA, dim = c(length(alpha), nrow(test.x)))
+       
+       for (i in 1:nrow(test.x)) {
+              quantiles.knn[, i] <- kNN.quantiles(
+                     data.X           = data.X, 
+                     data.Y           = data.Y, 
+                     x                = t(test.x[i, ]), 
+                     alpha            = alpha, 
+                     amount.neighbors = amount.neighbors.optimum
+              )
+       }
+       
+       if (dimension == 1) {
+              colours <- c(
+                     "orange", 
+                     "dark green", 
+                     "dark blue", 
+                     "dark red", 
+                     "violet"
+              )
+              
+              plot(data.X, data.Y, col = "light gray", bty = "n")
+              
+              for (i in 1:length(alpha)) {
+                     df <- rbind(t(test.x), quantiles.knn[i, ])
+                     df <- df[, order(df[1, ])]
+                     
+                     lines(df[1, ], df[2, ], col = colours[i])   
+              }
+              
+              legend(
+                     "topleft",
+                     inset     = 0.02,
+                     cex       = 0.75,
+                     ncol      = length(alpha),
+                     legend    = alpha,
+                     lty       = array(1, dim = length(alpha)),
+                     col       = colours,
+                     box.lty   = 0
+              )
+       }
+}
+
+
+# This method creates a p-dimensional grid with n equispaced points each dimension between 0 and 1.
+# The method then rescales each value to a specified range.
+create.grid <- function(points.amount, dimension, range.min, range.max) {
+       grid <- cube.solid.grid(p = dimension, n = points.amount)$points
+       grid <- rescale(grid, to = c(range.min, range.max))
+       
+       return(grid)
 }
 
